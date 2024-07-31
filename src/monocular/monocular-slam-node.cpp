@@ -10,7 +10,7 @@ MonocularSlamNode::MonocularSlamNode(ORB_SLAM3::System* pSLAM)
     m_SLAM = pSLAM;
     // std::cout << "slam changed" << std::endl;
     m_image_subscriber = this->create_subscription<ImageMsg>(
-        "camera",
+        "/freedom_vehicle/camera/image_raw",
         10,
         std::bind(&MonocularSlamNode::GrabImage, this, std::placeholders::_1));
     std::cout << "slam changed" << std::endl;
@@ -27,7 +27,6 @@ MonocularSlamNode::~MonocularSlamNode()
 
 void MonocularSlamNode::GrabImage(const ImageMsg::SharedPtr msg)
 {
-    // Copy the ros image message to cv::Mat.
     try
     {
         m_cvImPtr = cv_bridge::toCvCopy(msg);
