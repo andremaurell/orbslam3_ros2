@@ -5,9 +5,10 @@
 using std::placeholders::_1;
 using std::placeholders::_2;
 
-StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettingsFile, const string &strDoRectify)
+StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, rclcpp::Node* node, const string &strSettingsFile, const string &strDoRectify)
 :   Node("ORB_SLAM3_ROS2"),
-    m_SLAM(pSLAM)
+    m_SLAM(pSLAM),
+    node_(node)
 {
     stringstream ss(strDoRectify);
     ss >> boolalpha >> doRectify;
@@ -48,9 +49,8 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
         cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(cols_r,rows_r),CV_32F,M1r,M2r);
     }
 
-    left_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "/freedom_vehicle/left/camera/image_raw");
-    right_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "/freedom_vehicle/right/camera/image_raw");
-
+    left_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(node_, "/freedom_vehicle/camera/image_raw");
+    right_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(node_, "/freedom_vehicle/camera/image_raw");
     syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(10), *left_sub, *right_sub);
     syncApproximate->registerCallback(&StereoSlamNode::GrabStereo, this);
 }
@@ -66,36 +66,22 @@ StereoSlamNode::~StereoSlamNode()
 
 void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMsg::SharedPtr msgRight)
 {
-    // Copy the ros rgb image message to cv::Mat.
-    try
-    {
-        cv_ptrLeft = cv_bridge::toCvShare(msgLeft);
-    }
-    catch (cv_bridge::Exception& e)
-    {
-        RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
-        return;
-    }
+    try {
+        auto cv_ptrLeft = cv_bridge::toCvShare(msgLeft);
+        auto cv_ptrRight = cv_bridge::toCvShare(msgRight);
 
-    // Copy the ros depth image message to cv::Mat.
-    try
-    {
-        cv_ptrRight = cv_bridge::toCvShare(msgRight);
-    }
-    catch (cv_bridge::Exception& e)
-    {
-        RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
-        return;
-    }
-
-    if (doRectify){
         cv::Mat imLeft, imRight;
-        cv::remap(cv_ptrLeft->image,imLeft,M1l,M2l,cv::INTER_LINEAR);
-        cv::remap(cv_ptrRight->image,imRight,M1r,M2r,cv::INTER_LINEAR);
+        if (doRectify) {
+            cv::remap(cv_ptrLeft->image, imLeft, M1l, M2l, cv::INTER_LINEAR);
+            cv::remap(cv_ptrRight->image, imRight, M1r, M2r, cv::INTER_LINEAR);
+        } else {
+            imLeft = cv_ptrLeft->image;
+            imRight = cv_ptrRight->image;
+        }
+
         m_SLAM->TrackStereo(imLeft, imRight, Utility::StampToSec(msgLeft->header.stamp));
     }
-    else
-    {
-        m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
+    catch (const cv_bridge::Exception& e) {
+        RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
     }
 }
