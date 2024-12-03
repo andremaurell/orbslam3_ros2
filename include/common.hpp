@@ -39,12 +39,8 @@
 #include "System.h"
 #include "ImuTypes.h"
 
-// ArUco-ROS library
-#include <aruco_msgs/msg/marker_array.hpp>
-
 // JSON library
 #include <nlohmann/json.hpp>
-
 using json = nlohmann::json;
 
 extern ORB_SLAM3::System *pSLAM;
@@ -77,6 +73,7 @@ struct SLAMData {
 
 extern SLAMData slam_data;
 
+// Functions
 void setup_services(ros::NodeHandle &, std::string);
 void publish_topics(ros::Time, Eigen::Vector3f = Eigen::Vector3f::Zero());
 void setup_publishers(ros::NodeHandle &, image_transport::ImageTransport &, std::string);
@@ -96,6 +93,6 @@ inline geometry_msgs::msg::Transform SE3f_to_transform(Sophus::SE3f pose);
 sensor_msgs::PointCloud2 mappoint_to_pointcloud(std::vector<ORB_SLAM3::MapPoint *>, ros::Time);
 
 // Function to process ArUco markers
-// void process_aruco_tags(const aruco_msgs::msg::MarkerArray::SharedPtr marker_array);
+void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::Mat &dist_coeffs);
 
 #endif // COMMON_HPP

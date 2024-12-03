@@ -20,11 +20,9 @@
 class StereoSlamNode : public rclcpp::Node
 {
 public:
-    StereoSlamNode(ORB_SLAM3::System* pSLAM, rclcpp::Node* node, const string &strSettingsFile, const string &strDoRectify);
+    StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettingsFile, const string &strDoRectify);
 
     ~StereoSlamNode();
-
-    rclcpp::Node* node_;
 
 private:
     using ImageMsg = sensor_msgs::msg::Image;
