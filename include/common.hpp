@@ -92,7 +92,10 @@ inline geometry_msgs::msg::Transform SE3f_to_transform(Sophus::SE3f pose);
 
 sensor_msgs::PointCloud2 mappoint_to_pointcloud(std::vector<ORB_SLAM3::MapPoint *>, ros::Time);
 
-// Function to process ArUco markers
-void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::Mat &dist_coeffs);
+// Functions to process ArUco markers and calculate pose
+void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::Mat &dist_coeffs,
+                        const std::map<int, Sophus::SE3f> &known_markers);
+void load_markers_from_json(const std::string &filename, std::map<int, Sophus::SE3f> &known_markers);
+Eigen::Matrix4f calculate_camera_pose(const Sophus::SE3f &T_ar_world, const cv::Vec3d &rvec, const cv::Vec3d &tvec);
 
 #endif // COMMON_HPP

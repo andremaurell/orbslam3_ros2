@@ -51,7 +51,8 @@ link_directories(
 add_executable(mono
   src/monocular/mono.cpp
   src/monocular/monocular-slam-node.cpp
-  src/common.cpp 
+  src/tracking.cpp
+  src/common.cpp
 )
 ament_target_dependencies(mono rclcpp sensor_msgs cv_bridge ORB_SLAM3 Pangolin OpenCV nav_msgs visualization_msgs rviz_visual_tools tf2_eigen)
 target_link_libraries(mono
