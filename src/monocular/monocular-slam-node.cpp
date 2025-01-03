@@ -36,7 +36,5 @@ void MonocularSlamNode::GrabImage(const ImageMsg::SharedPtr msg)
         RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
         return;
     }
-
-    std::cout<<""<<std::endl;
     m_SLAM->TrackMonocular(m_cvImPtr->image, Utility::StampToSec(msg->header.stamp));
 }

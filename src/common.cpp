@@ -1,18 +1,19 @@
+#include "common.hpp"
 #include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <iostream>
-#include <nlohmann/json.hpp>
 #include <fstream>
 #include <stdexcept>
-#include "common.hpp"
+#include <nlohmann/json.hpp>
+#include <sophus/se3.hpp>
+
 
 // Definição da variável global slam_data
 SLAMData slam_data;
 
 // Função para processar os marcadores ArUco
-// Processar ArUcos
 void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::Mat &dist_coeffs,
                         const std::map<int, Sophus::SE3f> &known_markers) {
     if (frame.empty()) {
@@ -39,15 +40,16 @@ void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::
 
         std::vector<cv::Vec3d> rvecs, tvecs;
 
+        slam_data.marker_ids.clear();
+        slam_data.marker_poses.clear();
+
         for (size_t i = 0; i < ids.size(); ++i) {
             int marker_id = ids[i];
 
             if (known_markers.count(marker_id)) {
-                // Tamanho do marcador em metros
-                float marker_size = 0.071;  // Substitua pelo tamanho correto dos marcadores em metros
+                float marker_size = 0.071;  // Tamanho do marcador em metros
                 cv::aruco::estimatePoseSingleMarkers(corners, marker_size, cam_mat, dist_coeffs_mat, rvecs, tvecs);
 
-                // Normalizar tvec para metros, se necessário
                 tvecs[i][0] /= 100.0;
                 tvecs[i][1] /= 100.0;
                 tvecs[i][2] /= 100.0;
@@ -56,19 +58,19 @@ void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::
                           << "\nrvec: [" << rvecs[i][0] << ", " << rvecs[i][1] << ", " << rvecs[i][2]
                           << "]\ntvec: [" << tvecs[i][0] << ", " << tvecs[i][1] << ", " << tvecs[i][2] << "]" << std::endl;
 
-                // Calcular a posição da câmera no mundo
                 Eigen::Matrix4f T_cam_world = calculate_camera_pose(
                     known_markers.at(marker_id), rvecs[i], tvecs[i]);
 
-                // Exibir posição calculada da câmera
-                std::cout << "Detected ArUco Marker ID: " << marker_id
-                          << " Camera Position in World: ["
-                          << T_cam_world(0, 3) << ", "
-                          << T_cam_world(1, 3) << ", "
-                          << T_cam_world(2, 3) << "]" << std::endl;
+                Sophus::SE3f marker_pose(Eigen::Matrix3f(T_cam_world.block<3, 3>(0, 0)),
+                                         Eigen::Vector3f(T_cam_world.block<3, 1>(0, 3)));
 
-                // Desenhar eixo com tamanho reduzido
-                float axis_length = marker_size * 0.1;  // Reduzir o tamanho dos eixos
+                slam_data.marker_ids.push_back(marker_id);
+                slam_data.marker_poses.push_back(marker_pose);
+
+                std::cout << "Atualizado slam_data - Marker ID: " << marker_id
+                          << " Pose: [" << T_cam_world(0, 3) << ", " << T_cam_world(1, 3) << ", " << T_cam_world(2, 3) << "]" << std::endl;
+
+                float axis_length = marker_size * 0.1;  // Tamanho reduzido do eixo
                 cv::aruco::drawAxis(frame, cam_mat, dist_coeffs_mat, rvecs[i], tvecs[i], axis_length);
             } else {
                 std::cerr << "Marker ID " << marker_id << " not found in known markers." << std::endl;
@@ -79,7 +81,6 @@ void process_aruco_tags(cv::Mat &frame, const cv::Mat &camera_matrix, const cv::
     cv::imshow("ArUco Detection", frame);
     cv::waitKey(1);
 }
-
 
 // Função para carregar marcadores do JSON
 void load_markers_from_json(const std::string &filename, std::map<int, Sophus::SE3f> &known_markers) {
@@ -118,26 +119,101 @@ Eigen::Matrix4f calculate_camera_pose(
     const Sophus::SE3f &T_ar_world,
     const cv::Vec3d &rvec,
     const cv::Vec3d &tvec) {
-    // Converter rvec para matriz de rotação
     cv::Mat R_cam;
     cv::Rodrigues(rvec, R_cam);
     Eigen::Matrix3f R_ar_cam;
     cv::cv2eigen(R_cam, R_ar_cam);
 
-    // Vetor de translação
     Eigen::Vector3f t_ar_cam(tvec[0], tvec[1], tvec[2]);
 
-    // Matriz de transformação do ArUco para a câmera
     Eigen::Matrix4f T_ar_cam = Eigen::Matrix4f::Identity();
     T_ar_cam.block<3, 3>(0, 0) = R_ar_cam;
     T_ar_cam.block<3, 1>(0, 3) = t_ar_cam;
 
-    // Inversão da transformação (câmera em relação ao ArUco)
     Eigen::Matrix4f T_cam_ar = T_ar_cam.inverse();
-
-    // Matriz de transformação da câmera para o mundo
     Eigen::Matrix4f T_cam_world = T_ar_world.matrix() * T_cam_ar;
 
     return T_cam_world;
 }
 
+cv::Mat convert_ros_image_to_cv(const sensor_msgs::msg::Image::SharedPtr msg) {
+    try {
+        return cv_bridge::toCvCopy(msg, "bgr8")->image;
+    } catch (const std::exception &e) {
+        throw std::runtime_error("Erro ao converter imagem: " + std::string(e.what()));
+    }
+}
+
+// Implementação de SLAMRelocalizationNode
+SLAMRelocalizationNode::SLAMRelocalizationNode()
+    : Node("slam_relocalization_node") {
+    RCLCPP_INFO(this->get_logger(), "SLAMRelocalizationNode iniciado.");
+
+    image_subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
+        "/freedom_vehicle/camera/image_raw", 10,
+        std::bind(&SLAMRelocalizationNode::imageCallback, this, std::placeholders::_1));
+
+    pose_publisher_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/orbslam3/camera_pose", 10);
+
+    try {
+        load_markers_from_json("/home/lognav/colcon_ws/src/orbslam3_ros2/config/arucos_infos.json", known_markers_);
+    } catch (const std::exception &e) {
+        RCLCPP_ERROR(this->get_logger(), "Erro ao carregar marcadores: %s", e.what());
+    }
+}
+
+void SLAMRelocalizationNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr msg) {
+    RCLCPP_INFO(this->get_logger(), "Callback de imagem chamado.");
+
+    cv::Mat frame = convert_ros_image_to_cv(msg);
+
+    process_aruco_tags(frame, camera_matrix_, dist_coeffs_, known_markers_);
+
+    if (slam_data.marker_ids.empty()) {
+        RCLCPP_WARN(this->get_logger(), "Nenhum marcador detectado na imagem.");
+        return;
+    }
+
+    bool relocalized = false;
+    for (size_t i = 0; i < slam_data.marker_ids.size(); ++i) {
+        int id = slam_data.marker_ids[i];
+        if (known_markers_.count(id)) {
+            Sophus::SE3f marker_pose = slam_data.marker_poses[i];
+
+            Eigen::Vector3f camera_position = marker_pose.translation();
+            RCLCPP_INFO(this->get_logger(), "Relocalizado com ArUco ID: %d", id);
+            RCLCPP_INFO(this->get_logger(), "Posição da câmera no mundo: [%.3f, %.3f, %.3f]",
+                        camera_position[0], camera_position[1], camera_position[2]);
+
+            send_pose_to_slam(marker_pose);
+            relocalized = true;
+            break;
+        } else {
+            RCLCPP_WARN(this->get_logger(), "Marcador ID %d não é conhecido.", id);
+        }
+    }
+
+    if (!relocalized) {
+        RCLCPP_WARN(this->get_logger(), "Nenhum marcador conhecido encontrado para relocalização.");
+    }
+}
+
+void SLAMRelocalizationNode::send_pose_to_slam(const Sophus::SE3f &pose) {
+    geometry_msgs::msg::PoseStamped pose_msg;
+    pose_msg.header.stamp = this->now();
+    pose_msg.header.frame_id = "map";
+
+    Eigen::Quaternionf q = pose.unit_quaternion();
+    pose_msg.pose.orientation.x = q.x();
+    pose_msg.pose.orientation.y = q.y();
+    pose_msg.pose.orientation.z = q.z();
+    pose_msg.pose.orientation.w = q.w();
+
+    pose_msg.pose.position.x = pose.translation().x();
+    pose_msg.pose.position.y = pose.translation().y();
+    pose_msg.pose.position.z = pose.translation().z();
+
+    pose_publisher_->publish(pose_msg);
+    RCLCPP_INFO(this->get_logger(), "Pose publicada: [%.3f, %.3f, %.3f]",
+                pose.translation().x(), pose.translation().y(), pose.translation().z());
+}

@@ -20,8 +20,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
-find_package(aruco_ros REQUIRED)
-find_package(aruco_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(Sophus REQUIRED)
 find_package(Pangolin REQUIRED)
@@ -30,7 +28,10 @@ find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rviz_visual_tools REQUIRED)
 find_package(tf2_eigen REQUIRED)
-find_package(OpenCV REQUIRED)  # Adicionado para OpenCV
+find_package(OpenCV REQUIRED)
+
+# ROS 1
+find_package(roscpp REQUIRED)
 
 # Inclui os diretórios necessários
 include_directories(
@@ -40,18 +41,19 @@ include_directories(
   ${ORB_SLAM3_ROOT_DIR}/Thirdparty/Sophus
   ${ORB_SLAM3_ROOT_DIR}/Thirdparty/json/include
   ${aruco_msgs_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}  # Diretórios do OpenCV
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 link_directories(
   include
+  /home/lognav/ros_catkin_ws/install_isolated/lib  # Caminho das bibliotecas ROS 1
 )
 
 # Define os executáveis e suas dependências
 add_executable(mono
   src/monocular/mono.cpp
-  src/monocular/monocular-slam-node.cpp
   src/tracking.cpp
+  src/monocular/monocular-slam-node.cpp
   src/common.cpp
 )
 ament_target_dependencies(mono rclcpp sensor_msgs cv_bridge ORB_SLAM3 Pangolin OpenCV nav_msgs visualization_msgs rviz_visual_tools tf2_eigen)
@@ -59,6 +61,7 @@ target_link_libraries(mono
   ${ORB_SLAM3_LIBRARIES}
   ${aruco_msgs_LIBRARIES}
   ${rclcpp_LIBRARIES}
+  ${roscpp_LIBRARIES}  # Adicionado para ROS 1
   ${OpenCV_LIBS}
   ${Pangolin_LIBRARIES}
 )
@@ -73,6 +76,7 @@ target_link_libraries(rgbd
   ${ORB_SLAM3_LIBRARIES}
   ${aruco_msgs_LIBRARIES}
   ${rclcpp_LIBRARIES}
+  ${roscpp_LIBRARIES}  # Adicionado para ROS 1
   ${OpenCV_LIBS}
   ${Pangolin_LIBRARIES}
 )
@@ -87,6 +91,7 @@ target_link_libraries(stereo
   ${ORB_SLAM3_LIBRARIES}
   ${aruco_msgs_LIBRARIES}
   ${rclcpp_LIBRARIES}
+  ${roscpp_LIBRARIES}  # Adicionado para ROS 1
   ${OpenCV_LIBS}
   ${Pangolin_LIBRARIES}
 )
@@ -100,6 +105,7 @@ target_link_libraries(stereo-inertial
   ${ORB_SLAM3_LIBRARIES}
   ${aruco_msgs_LIBRARIES}
   ${rclcpp_LIBRARIES}
+  ${roscpp_LIBRARIES}  # Adicionado para ROS 1
   ${OpenCV_LIBS}
   ${Pangolin_LIBRARIES}
 )

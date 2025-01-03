@@ -38,13 +38,18 @@ void load_camera_parameters(const std::string &filename, cv::Mat &camera_matrix,
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
 
+    if (argc < 3) {
+        std::cerr << "Uso: mono <vocabulário> <configuração>" << std::endl;
+        return 1;
+    }
+
     // Declarar as matrizes
     cv::Mat camera_matrix, dist_coeffs;
     std::map<int, Sophus::SE3f> known_markers;
 
-    // Carregar parâmetros da câmera do arquivo YAML
+    // Carregar parâmetros da câmera e marcadores conhecidos
     try {
-        std::string camera_params = "/home/lognav/colcon_ws/src/orbslam3_ros2/config/monocular/EuRoC.yaml";
+        std::string camera_params = argv[2]; // Arquivo YAML de configuração passado como argumento
         std::string markers_json = "/home/lognav/colcon_ws/src/orbslam3_ros2/config/arucos_infos.json";
 
         load_camera_parameters(camera_params, camera_matrix, dist_coeffs);
@@ -57,53 +62,34 @@ int main(int argc, char **argv) {
         load_markers_from_json(markers_json, known_markers);
 
     } catch (const std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        std::cerr << "Erro ao carregar parâmetros: " << e.what() << std::endl;
         return 1;
     }
 
-    // Criação do sistema SLAM
+    // Inicialize o sistema ORB-SLAM3
     bool visualization = true;
     ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, visualization);
 
-    auto node = std::make_shared<MonocularSlamNode>(&SLAM);
+    // Criação do nó principal do SLAM
+    auto monocular_node = std::make_shared<MonocularSlamNode>(&SLAM);
 
-    // Assinatura para callback de imagem
-    auto image_sub = node->create_subscription<sensor_msgs::msg::Image>(
-        "/freedom_vehicle/camera/image_raw", 10,
-        [&](const sensor_msgs::msg::Image::SharedPtr msg) {
-            try {
-                cv::Mat frame = cv_bridge::toCvCopy(msg, "bgr8")->image;
+    // Criação do nó de relocalização usando ArUcos
+    auto slam_relocalization_node = std::make_shared<SLAMRelocalizationNode>();
 
-                // Processar os ArUcos
-                process_aruco_tags(frame, camera_matrix, dist_coeffs, known_markers);
+    // Configuração de parâmetros do relocalization node
+    slam_relocalization_node->camera_matrix_ = camera_matrix;
+    slam_relocalization_node->dist_coeffs_ = dist_coeffs;
+    slam_relocalization_node->known_markers_ = known_markers;
 
-                // Calcular o timestamp do frame
-                double timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    RCLCPP_INFO(monocular_node->get_logger(), "Nó Monocular e Relocalização inicializados.");
 
-                // Verificar se há marcadores conhecidos
-                if (!slam_data.marker_ids.empty()) {
-                    for (size_t i = 0; i < slam_data.marker_ids.size(); ++i) {
-                        int id = slam_data.marker_ids[i];
-                        if (known_markers.count(id)) {
-                            Sophus::SE3f camera_pose =
-                                known_markers.at(id) * slam_data.marker_poses[i].inverse();
+    // Inicia o spin para ambos os nós
+    rclcpp::executors::MultiThreadedExecutor executor;
+    executor.add_node(monocular_node);
+    executor.add_node(slam_relocalization_node);
 
-                            // Enviar o frame para o SLAM com relocalização inicial
-                            RCLCPP_INFO(node->get_logger(), "Relocalizando com ArUco ID: %d", id);
-                        }
-                    }
-                }
+    executor.spin();
 
-                // Enviar o frame para o ORB-SLAM3
-                SLAM.TrackMonocular(frame, timestamp);
-
-            } catch (const std::exception &e) {
-                RCLCPP_ERROR(node->get_logger(), "Erro ao processar frame: %s", e.what());
-            }
-        });
-
-    rclcpp::spin(node);
     rclcpp::shutdown();
-
     return 0;
 }

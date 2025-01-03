@@ -15,8 +15,6 @@
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
   <depend>Pangolin</depend>
-  <depend>aruco_ros</depend>
-  <depend>aruco_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>rviz_visual_tools</depend>
